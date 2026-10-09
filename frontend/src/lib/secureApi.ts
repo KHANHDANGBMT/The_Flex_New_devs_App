@@ -541,6 +541,18 @@ export class SecureAPIClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
+    // Financial reports use the current session and the server's tenant-scoped cache.
+    // A cached token/result from a previous login must never serve this dashboard.
+    if (endpoint.startsWith('/api/v1/dashboard/')) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        this.setAccessToken(null);
+        throw new TenantIsolationError('No valid authentication token available');
+      }
+      this.setAccessToken(session.access_token);
+      return this.executeRequest<T>(endpoint, { ...options, cache: 'no-store' }, null, false);
+    }
+
     const method = options.method || 'GET';
     const isGetRequest = method === 'GET';
 
@@ -1449,23 +1461,22 @@ export class SecureAPIClient {
   }
 
   // ============= DASHBOARD API =============
-  /**
-   * Get dashboard summary with optional simulation header
-   */
-  async getDashboardSummary(propertyId: string, options?: { simulatedTenant?: string, timestamp?: number }) {
-    const queryParams = new URLSearchParams({ property_id: propertyId });
-    if (options?.timestamp) {
-      queryParams.append('_t', options.timestamp.toString());
-    }
+  async getDashboardProperties() {
+    return this.request<Array<{ id: string; name: string }>>('/api/v1/dashboard/properties');
+  }
 
-    const requestOptions: RequestInit = {};
-    if (options?.simulatedTenant) {
-      requestOptions.headers = {
-        'X-Simulated-Tenant': options.simulatedTenant
-      };
-    }
-
-    return this.request<any>(`/api/v1/dashboard/summary?${queryParams}`, requestOptions);
+  async getDashboardSummary(propertyId: string, period: { month: number; year: number }) {
+    const queryParams = new URLSearchParams({
+      property_id: propertyId,
+      month: String(period.month),
+      year: String(period.year),
+    });
+    return this.request<{
+      property_id: string;
+      total_revenue: string;
+      currency: string | null;
+      reservations_count: number;
+    }>(`/api/v1/dashboard/summary?${queryParams}`);
   }
 
   async uploadCompanyLogo(logo_url: string) {

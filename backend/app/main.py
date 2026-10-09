@@ -127,6 +127,9 @@ async def lifespan(app: FastAPI):
     await async_processor.shutdown()
     logger.info("Async processor shutdown completed")
 
+    from .core.database_pool import db_pool
+    await db_pool.close()
+
     # Close connection pool
     try:
         from .core.supabase_connection_pool import supabase_pool
